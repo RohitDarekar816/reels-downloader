@@ -43,61 +43,12 @@ R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME")
 R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID")
 R2_PUBLIC_URL_BASE = f"https://{R2_BUCKET_NAME}.{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 
-def upload_to_r2(local_file_path, r2_key):
-    session = boto3.session.Session()
-    client = session.client(
-        's3',
-        region_name='auto',
-        endpoint_url=f'https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com',
-        aws_access_key_id=R2_ACCESS_KEY_ID,
-        aws_secret_access_key=R2_SECRET_ACCESS_KEY,
-    )
-    client.upload_file(local_file_path, R2_BUCKET_NAME, r2_key)
-    # Generate a presigned URL for GET (valid for 1 hour)
-    presigned_url = client.generate_presigned_url(
-        'get_object',
-        Params={'Bucket': R2_BUCKET_NAME, 'Key': r2_key},
-        ExpiresIn=604800  # 1 hour
-    )
-    return presigned_url
-
-def upload_to_r2_fileobj(fileobj, r2_key):
-    session = boto3.session.Session()
-    client = session.client(
-        's3',
-        region_name='auto',
-        endpoint_url=f'https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com',
-        aws_access_key_id=R2_ACCESS_KEY_ID,
-        aws_secret_access_key=R2_SECRET_ACCESS_KEY,
-    )
-    client.upload_fileobj(fileobj, R2_BUCKET_NAME, r2_key)
-    presigned_url = client.generate_presigned_url(
-        'get_object',
-        Params={'Bucket': R2_BUCKET_NAME, 'Key': r2_key},
-        ExpiresIn=604800  # 7 days
-    )
-    return presigned_url
+# Remove the upload_to_r2_fileobj function
 
 
 app = Flask(__name__)
 
 executor = ThreadPoolExecutor(max_workers=4)
-
-def upload_and_save_async(dest_path, r2_key):
-    try:
-        signed_url = upload_to_r2(dest_path, r2_key)
-        send_to_mongodb(signed_url)
-        os.remove(dest_path)
-    except Exception as e:
-        logger.error(f"Async upload/save failed: {e}")
-
-def upload_and_save_async_fileobj(file_like, r2_key):
-    try:
-        file_like.seek(0)
-        signed_url = upload_to_r2_fileobj(file_like, r2_key)
-        send_to_mongodb(signed_url)
-    except Exception as e:
-        logger.error(f"Async upload/save failed: {e}")
 
 def download_instagram_reel(reel_url):
     loader = instaloader.Instaloader()
@@ -107,17 +58,12 @@ def download_instagram_reel(reel_url):
         shortcode = reel_url.rstrip('/').split('/')[-1]
         post = instaloader.Post.from_shortcode(loader.context, shortcode)
         video_url = post.video_url
+        logger.info(f"Fetched video_url")
         if not video_url:
             return False, "No video URL found for this reel."
-        # Stream video into memory
-        response = requests.get(video_url, stream=True)
-        response.raise_for_status()
-        file_like = io.BytesIO(response.content)
-        r2_key = f"{shortcode}.mp4"
-        # Upload to R2 directly from memory
-        executor.submit(upload_and_save_async_fileobj, file_like, r2_key)
-        # executor.submit(cleanup_old_reels_async)
-        return True, f"Reel is being processed and will be available soon."
+        # Save video_url to MongoDB
+        send_to_mongodb(video_url)
+        return True, f"Reel video URL saved to database."
     except Exception as e:
         logger.error(f"Exception in download_instagram_reel: {e}")
         return False, str(e)
@@ -129,33 +75,22 @@ client = MongoClient(MONGODB_URL)
 db = client["github-webhook"]
 collection = db["reels"]
 
-def send_to_mongodb(r2_url):
+def send_to_mongodb(video_url):
     try:
-        if collection.find_one({"r2_url": r2_url}):
-            logger.info(f"URL already exists in MongoDB: {r2_url}")
+        if collection.find_one({"video_url": video_url}):
+            logger.info(f"video_url already exists in MongoDB")
             return False
         else:
-            logger.info(f"Saving to MongoDB: {r2_url}")
+            logger.info(f"Saving video_url to MongoDB")
         IST = pytz.timezone('Asia/Kolkata')
         created_at = datetime.datetime.now(datetime.timezone.utc).astimezone(IST)
         created_at_time = created_at.strftime("%I:%M %p %d-%m-%Y")
-        collection.insert_one({"r2_url": r2_url, "created_at": created_at_time})
-        logger.info(f"Successfully saved to MongoDB: {r2_url}")
+        collection.insert_one({"video_url": video_url, "created_at": created_at_time})
+        logger.info(f"Successfully saved video_url to MongoDB")
         return True
     except Exception as e:
-        logger.error(f"Failed to save to MongoDB: {str(e)}")
+        logger.error(f"Failed to save video_url to MongoDB: {str(e)}")
         return False
-
-# get the list of reels from MongoDB and delete reels that are older than 6 days
-# def cleanup_old_reels_async():
-#     try:
-#         IST = pytz.timezone('Asia/Kolkata')
-#         current_time = datetime.datetime.now(datetime.timezone.utc).astimezone(IST)
-#         cutoff_time = current_time - datetime.timedelta(days=6)
-#         result = collection.delete_many({"created_at": {"$lt": cutoff_time.strftime("%I:%M %p %d-%m-%Y")}})
-#         print(f"[INFO] Deleted {result.deleted_count} old reels from MongoDB.")
-#     except Exception as e:
-#         print(f"[ERROR] Failed to clean up old reels: {str(e)}")
 
 # List data from MongoDB
 @app.route("/reels", methods=["GET"])
@@ -163,10 +98,10 @@ def list_reels():
     docs = list(collection.find())
     for doc in docs:
         doc["_id"] = str(doc["_id"])
-        # Rename 'r2_url' to 'url' for frontend compatibility
-        doc["url"] = doc.get("r2_url")
-        if "r2_url" in doc:
-            del doc["r2_url"]
+        # Rename 'video_url' to 'url' for frontend compatibility
+        doc["url"] = doc.get("video_url")
+        if "video_url" in doc:
+            del doc["video_url"]
     return jsonify(docs), 200
 
 @app.route("/", methods=["POST"])
