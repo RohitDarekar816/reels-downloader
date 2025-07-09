@@ -34,3 +34,24 @@ logs/
 coverage/
 *.tgz
 .pnpm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pdb
+*.egg-info/
+.eggs/
+*.egg
+*.manifest
+*.spec
+*.sqlite3
+
+# Flask
+instance/
+.webassets-cache
+
+# VSCode
+.vscode/
