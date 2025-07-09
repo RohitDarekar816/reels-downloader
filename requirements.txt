@@ -1,0 +1,8 @@
+Flask
+requests
+instaloader
+boto3
+python-dotenv
+pymongo
+pytz
+colorlog

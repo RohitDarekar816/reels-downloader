@@ -2,9 +2,14 @@ import requests
 from urllib.parse import urlparse
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+import os
+from dotenv import load_dotenv
 
-TOKEN = '7713932198:AAEOth_zVrWRK0KCrIMCMDBuFbm1wfnYHaw'  # Replace with your actual bot token
-WEBHOOK_URL = 'http://dev.cloudtix.in'  # Your API endpoint
+load_dotenv()
+# Load environment variables from .env file
+
+TOKEN = os.getenv("TOKEN")  # Replace with your actual bot token
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Your API endpoint
 
 def clean_instagram_url(url):
     """Remove query params and trailing slash from Instagram Reel URL."""
