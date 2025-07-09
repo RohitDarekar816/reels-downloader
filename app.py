@@ -81,10 +81,13 @@ client = MongoClient(MONGODB_URL)
 db = client["github-webhook"]
 collection = db["reels"]
 
-print(f"[INFO] MongoDB connected: {MONGODB_URL}")
-
 def send_to_mongodb(r2_url):
     try:
+        if collection.find_one({"r2_url": r2_url}):
+            print(f"[INFO] URL already exists in MongoDB: {r2_url}")
+            return false
+        else:
+            print(f"[INFO] Saving to MongoDB: {r2_url}")
         collection.insert_one({"r2_url": r2_url})
         print(f"[INFO] Successfully saved to MongoDB: {r2_url}")
         return True
